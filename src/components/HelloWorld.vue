@@ -1,35 +1,94 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import PKCE from 'js-pkce'
+import Cookies from 'js-cookie'
+import axios from 'axios'
 
 defineProps<{ msg: string }>()
 
-const count = ref(0)
+const computedCookie = (key: string) => computed({
+  get: () => Cookies.get(key),
+  set: (value) => {
+    if (value) {
+      Cookies.set(key, value)
+    } else {
+      Cookies.remove(key)
+    }
+  }
+})
+
+const accessTokenCookie = computedCookie('accessToken')
+const accessToken = ref(accessTokenCookie.value)
+watch(accessToken, () => {
+  accessTokenCookie.value = accessToken.value
+})
+
+const user = ref()
+
+const clientId = import.meta.env.VITE_CLIENT_ID
+const appUri = import.meta.env.VITE_APP_URI
+const apiUri = import.meta.env.VITE_API_URI
+
+const pkce = new PKCE({
+  client_id: clientId,
+  redirect_uri: `${appUri}/oauth/callback`,
+  authorization_endpoint: `${apiUri}/oauth/authorize`,
+  token_endpoint: `${apiUri}/oauth/token`,
+  requested_scopes: '*',
+})
+
+const url = new URL(self.location.href)
+const code = url.searchParams.get('code')
+
+const authorize = () => {
+  const url = pkce.authorizeUrl()
+  self.location.assign(url)
+}
+const fetchToken = async () => {
+  const url = self.location.href
+  const token = await pkce.exchangeForAccessToken(url)
+  accessToken.value = token.access_token
+}
+const fetchUser = async () => {
+  const response = await axios.get('http://localhost/api/user', {
+    headers: {
+      Authorization: `Bearer ${accessToken.value}`
+    }
+  })
+  user.value = response.data
+}
 </script>
 
 <template>
   <h1>{{ msg }}</h1>
 
   <p>
-    Recommended IDE setup:
-    <a href="https://code.visualstudio.com/" target="_blank">VSCode</a>
-    +
-    <a href="https://github.com/johnsoncodehk/volar" target="_blank">Volar</a>
+    アクセストークン
+  </p>
+  <p style="border: dashed gray; background: lightgray; overflow-wrap: break-word;">
+    <span v-if="accessToken">
+      {{ accessToken }}
+    </span>
+    <span v-else>
+      アクセストークンが取得されていません
+    </span>
   </p>
 
-  <p>See <code>README.md</code> for more information.</p>
-
   <p>
-    <a href="https://vitejs.dev/guide/features.html" target="_blank">
-      Vite Docs
-    </a>
-    |
-    <a href="https://v3.vuejs.org/" target="_blank">Vue 3 Docs</a>
+    Step1:
+    <button type="button" @click="authorize">ユーザ認証</button>
+  </p>
+  <p>
+    Step2:
+    <button :disabled="!code" type="button" @click="fetchToken">アクセストークン取得</button>
   </p>
 
-  <button type="button" @click="count++">count is: {{ count }}</button>
   <p>
-    Edit
-    <code>components/HelloWorld.vue</code> to test hot module replacement.
+    Step3:
+    <button :disabled="!accessToken" type="button" @click="fetchUser">ユーザ情報取得</button>
+  </p>
+  <p style="background: lightgray; overflow-wrap: break-word;">
+      {{ user }}
   </p>
 </template>
 
